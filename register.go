@@ -117,7 +117,7 @@ func (e *ebsiTrustList) RegisterDid(options ...registrationOption) (interface{},
 	if err != nil {
 		return nil, err
 	}
-	if ake1, err = e.GetAccessToken(ro.Identifier, string(credential), ro.SigningKey, ro.EncryptionKey); err != nil {
+	if ake1, err = e.getAccessToken(ro.Identifier, string(credential), ro.SigningKey, ro.EncryptionKey); err != nil {
 		return nil, err
 	}
 	insertDocumentParams, err := ro.encodeDocumentParams()
@@ -125,7 +125,7 @@ func (e *ebsiTrustList) RegisterDid(options ...registrationOption) (interface{},
 	if err != nil {
 		return nil, err
 	}
-	rpcClient := jsonrpc.NewClientWithOpts(e.hasBaseUrl+"/did-registry/v2/jsonrpc", &jsonrpc.RPCClientOpts{
+	rpcClient := jsonrpc.NewClientWithOpts(e.hasBaseUrl+"/did-registry/v3/jsonrpc", &jsonrpc.RPCClientOpts{
 		DefaultRequestID: 1,
 		CustomHeaders: map[string]string{
 			"Authorization": "Bearer " + ake1.AccessToken,

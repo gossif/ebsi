@@ -27,7 +27,7 @@ type usersOnboardingResponse struct {
 // Onboard onboards a user on ebsi to start a did siop authentication request
 // See https://ec.europa.eu/digital-building-blocks/wikis/display/EBSIDOC/Users+Onboarding+API
 // The user needs to provide the access token from the EU Login or from the CAPTCHA challenge
-func (e *ebsiTrustList) Onboard(jwkKey jwk.Key) (interface{}, error) {
+func (e *ebsiTrustList) Onboard(did string, jwkKey jwk.Key) (interface{}, error) {
 	usersOnboarding, err := e.postAuthorizationRequest()
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func (e *ebsiTrustList) Onboard(jwkKey jwk.Key) (interface{}, error) {
 		return nil, err
 	}
 	idToken, err := jwt.NewBuilder().
-		Issuer("https://self-issued.me/v2").
+		Issuer(did).
 		Audience([]string{usersOnboarding.ClientId}).
 		Subject(base64.URLEncoding.EncodeToString(thumbprint)).
 		IssuedAt(time.Now()).
@@ -71,7 +71,7 @@ func (e *ebsiTrustList) postAuthorizationRequest() (usersOnboardingResponse, err
 	)
 	// set the scope of the authorization request
 	response := map[string]interface{}{}
-	err := e.httpPost("/users-onboarding/v1/authentication-requests", `{"scope":"ebsi users onboarding"}`, &response)
+	err := e.httpPost("/users-onboarding/v2/authentication-requests", `{"scope":"ebsi users onboarding"}`, &response)
 	if err != nil {
 		return onboardResponse, err
 	}
@@ -94,7 +94,7 @@ func (e *ebsiTrustList) postAuthorizationRequest() (usersOnboardingResponse, err
 func (e *ebsiTrustList) postAuthenticationResponse(idToken []byte) (interface{}, error) {
 	response := map[string]interface{}{}
 	// expect not an error on method allowed
-	if err := e.httpPost("/users-onboarding/v1/authentication-responses", fmt.Sprintf(`{"id_token":"%s"}`, string(idToken)), &response); err != nil {
+	if err := e.httpPost("/users-onboarding/v2/authentication-responses", fmt.Sprintf(`{"id_token":"%s"}`, string(idToken)), &response); err != nil {
 		return nil, err
 	}
 	verifiableCredential := response["verifiableCredential"]

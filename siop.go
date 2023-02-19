@@ -43,7 +43,7 @@ type ake1Decrypted struct {
 	Did         string `json:"did"`
 }
 
-func (e *ebsiTrustList) GetAccessToken(did string, verifiableCredential string, signingKey, encryptionKey jwk.Key) (*ake1Decrypted, error) {
+func (e *ebsiTrustList) getAccessToken(did string, verifiableCredential string, signingKey, encryptionKey jwk.Key) (*ake1Decrypted, error) {
 	var (
 		ake1Payload *ake1Payload
 	)
@@ -108,22 +108,23 @@ func generateIdToken(did string, verifiableCredential string, signingKey, encryp
 	if err != nil {
 		return nil, err
 	}
-	jsonSignedPresentation, _ := json.Marshal(doc.GetDocument())
+	//jsonSignedPresentation, _ := json.Marshal(doc.GetDocument())
 
 	publicEncKey, _ := encryptionKey.PublicKey()
 	claims := map[string]interface{}{
-		"verified_claims": base64.StdEncoding.EncodeToString(jsonSignedPresentation),
+		//"verified_claims": base64.StdEncoding.EncodeToString(jsonSignedPresentation),
 		"encryption_key":  publicEncKey,
 	}
 	publicSigKey, _ := signingKey.PublicKey()
 	thumbprint, _ := signingKey.Thumbprint(crypto.SHA256)
 	nonce, _ := generateNonce()
 	idToken, err := jwt.NewBuilder().
-		Issuer("https://self-issued.me").
-		Audience([]string{"/siop-sessions"}).
+		Issuer("https://self-issued.me/v2").
+		Audience([]string{"https://api-pilot.ebsi.eu/authorisation/v2/siop-sessions"}).
 		Subject(base64.URLEncoding.EncodeToString(thumbprint)).
 		IssuedAt(time.Now()).
 		Expiration(time.Now().Add(time.Minute*5)).
+		Claim("did", did).
 		Claim("nonce", nonce).
 		Claim("sub_jwk", publicSigKey).
 		Claim("claims", claims).

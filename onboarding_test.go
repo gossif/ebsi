@@ -31,11 +31,11 @@ func testSuccesfulOnboarding(t *testing.T) {
 
 	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/users-onboarding/v1/authentication-requests":
+		case "/users-onboarding/v2/authentication-requests":
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"session_token": "openid://?response_type=id_token&client_id=https%3A%2F%2Fapi.preprod.ebsi.eu%2Fusers-onboarding%2Fv2%2Fauthentication-responses&scope=openid+did_authn&nonce=03ac5101-0e76-4169-acfb-c4956938a69e&request=eyJhbGciOiJFUzI1NksiLCJ0eXAiOiJKV1QiLCJraWQiOiJodHRwczovL2FwaS5wcmVwcm9kLmVic2kuZXUvdHJ1c3RlZC1hcHBzLXJlZ2lzdHJ5L3YzL2FwcHMvdXNlcnMtb25ib2FyZGluZy1hcGlfcGlsb3QtdGVtcC0wMSJ9.eyJzY29wZSI6Im9wZW5pZCBkaWRfYXV0aG4iLCJyZXNwb25zZV90eXBlIjoiaWRfdG9rZW4iLCJyZXNwb25zZV9tb2RlIjoicG9zdCIsImNsaWVudF9pZCI6Imh0dHBzOi8vYXBpLnByZXByb2QuZWJzaS5ldS91c2Vycy1vbmJvYXJkaW5nL3YyL2F1dGhlbnRpY2F0aW9uLXJlc3BvbnNlcyIsInJlZGlyZWN0X3VyaSI6Imh0dHBzOi8vYXBpLnByZXByb2QuZWJzaS5ldS91c2Vycy1vbmJvYXJkaW5nL3YyL2F1dGhlbnRpY2F0aW9uLXJlc3BvbnNlcyIsIm5vbmNlIjoiMDNhYzUxMDEtMGU3Ni00MTY5LWFjZmItYzQ5NTY5MzhhNjllIiwiaWF0IjoxNjYwODUwNzQ5LCJpc3MiOiJ1c2Vycy1vbmJvYXJkaW5nLWFwaV9waWxvdC10ZW1wLTAxIiwiZXhwIjoxNjYwODUxMDQ5fQ.nExUW_MZJeyMtJlZEO-ZFIlHay56u5z1KWkKPWViccav04UWhqn9HFH8oQa86miIW10SBXcCoq9bT1aQCSFnZA"}`))
 
-		case "/users-onboarding/v1/authentication-responses":
+		case "/users-onboarding/v2/authentication-responses":
 			result := map[string]interface{}{}
 			err := json.NewDecoder(r.Body).Decode(&result)
 			if err != nil {
@@ -68,7 +68,7 @@ func testSuccesfulOnboarding(t *testing.T) {
 		ebsi.WithHttpClient(ts.Client()),
 	)
 	jwkKey, _ := jwk.ParseKey([]byte(jwkKeyString))
-	_, err := ebsiTrustList.Onboard(jwkKey)
+	_, err := ebsiTrustList.Onboard("did:ebsi:123", jwkKey)
 
 	require.NoError(t, err)
 }
