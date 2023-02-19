@@ -6,7 +6,9 @@ package ebsi
 import (
 	"crypto"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -28,6 +30,13 @@ type usersOnboardingResponse struct {
 // See https://ec.europa.eu/digital-building-blocks/wikis/display/EBSIDOC/Users+Onboarding+API
 // The user needs to provide the access token from the EU Login or from the CAPTCHA challenge
 func (e *ebsiTrustList) Onboard(did string, jwkKey jwk.Key) (interface{}, error) {
+	if strings.TrimSpace(did) == "" {
+		return nil, errors.New("invalid_did")
+	}
+	if jwkKey == nil {
+		return nil, errors.New("invalid_jwk")
+	}
+
 	usersOnboarding, err := e.postAuthorizationRequest()
 	if err != nil {
 		return nil, err
@@ -41,14 +50,16 @@ func (e *ebsiTrustList) Onboard(did string, jwkKey jwk.Key) (interface{}, error)
 	if err != nil {
 		return nil, err
 	}
+	clientId, _ := url.QueryUnescape(usersOnboarding.ClientId)
 	idToken, err := jwt.NewBuilder().
-		Issuer(did).
-		Audience([]string{usersOnboarding.ClientId}).
+		Issuer("https://self-issued.me/v2").
+		Audience([]string{clientId}).
 		Subject(base64.URLEncoding.EncodeToString(thumbprint)).
 		IssuedAt(time.Now()).
 		Expiration(time.Now().Add(time.Minute*5)).
 		Claim("nonce", usersOnboarding.Nonce).
 		Claim("sub_jwk", publicSigKey).
+		Claim("responseMode", "form_post").
 		Build()
 	if err != nil {
 		return nil, err
