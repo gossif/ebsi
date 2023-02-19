@@ -36,9 +36,14 @@ func (e *ebsiTrustList) httpPost(url string, payload string, result interface{})
 		return err
 	}
 	// add authorization header to the req
-	req.Header.Add("Authorization", e.hasAuthToken)
+
+	if strings.TrimSpace(e.hasAuthToken) != "" {
+		req.Header.Add("Authorization", "Bearer "+e.hasAuthToken)
+	}
 	req.Header.Add("Content-Type", "application/json; charset=utf-8")
-	req.Header.Add("Conformance", e.hasConformance)
+	if strings.TrimSpace(e.hasConformance) != "" {
+		req.Header.Add("Conformance", e.hasConformance)
+	}
 	// Send req using http Client
 	if e.hasVerbose {
 		body, _ := httputil.DumpRequestOut(req, true)
