@@ -15,7 +15,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gossif/ebsi/secp256k1"
-	"github.com/gossif/ldproofs"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
@@ -43,25 +42,23 @@ type ake1Decrypted struct {
 	Did         string `json:"did"`
 }
 
-func (e *ebsiTrustList) getAccessToken(did string, verifiableCredential string, signingKey, encryptionKey jwk.Key) (*ake1Decrypted, error) {
+func (e *ebsiTrustList) getAccessToken(r registration) (*ake1Decrypted, error) {
 	var (
 		ake1Payload *ake1Payload
 	)
-	if signingKey == nil {
-		return nil, errors.New("missing_signing_key")
-	}
-	if encryptionKey == nil {
-		return nil, errors.New("missing_encryption_key")
-	}
-	idToken, err := generateIdToken(did, verifiableCredential, signingKey, encryptionKey)
+	idToken, err := generateIdToken(r.Identifier, r.SigningKey, r.EncryptionKey)
 	if err != nil {
 		return nil, err
 	}
-	ake1Payload, err = e.postCreateSiopSession(context.Background(), idToken)
+	vpToken, err := generateVpToken(r.Identifier, r.Token, r.SigningKey)
 	if err != nil {
 		return nil, err
 	}
-	decryptedPayload, err := handleSiopResponse(ake1Payload, encryptionKey)
+	ake1Payload, err = e.postCreateSiopSession(context.Background(), idToken, vpToken)
+	if err != nil {
+		return nil, err
+	}
+	decryptedPayload, err := handleSiopResponse(ake1Payload, r.EncryptionKey)
 	if err != nil {
 		return nil, err
 	}
@@ -69,58 +66,27 @@ func (e *ebsiTrustList) getAccessToken(did string, verifiableCredential string, 
 }
 
 // postCreateSiopSession starts the authorization request with ebsi to onboard a user
-func (e *ebsiTrustList) postCreateSiopSession(ctx context.Context, idToken []byte) (*ake1Payload, error) {
+func (e *ebsiTrustList) postCreateSiopSession(ctx context.Context, idToken, vpToken []byte) (*ake1Payload, error) {
 	var (
 		ake1Payload ake1Payload
 	)
-	if err := e.httpPost("/authorisation/v1/siop-sessions", fmt.Sprintf(`{"id_token":"%s"}`, string(idToken)), &ake1Payload); err != nil {
+	if err := e.httpPost("/authorisation/v2/siop-sessions", fmt.Sprintf(`{"id_token":"%s","vp_token":"%s"}`, string(idToken), string(vpToken)), &ake1Payload); err != nil {
 		return nil, err
 	}
 	return &ake1Payload, nil
 }
 
-func generateIdToken(did string, verifiableCredential string, signingKey, encryptionKey jwk.Key) ([]byte, error) {
-	presentation := map[string]interface{}{
-		"@context":             []string{"https://www.w3.org/2018/credentials/v1", "https://w3id.org/security/suites/jws-2020/v1"},
-		"id":                   fmt.Sprintf("urn:uuid:%s", uuid.NewString()),
-		"type":                 []string{"VerifiablePresentation"},
-		"holder":               did,
-		"verifiableCredential": []string{verifiableCredential},
-	}
-	jsonPresentation, _ := json.Marshal(presentation)
-	doc, err := ldproofs.NewDocument(jsonPresentation)
-	if err != nil {
-		return nil, err
-	}
-	jsonKey, _ := json.Marshal(signingKey)
-	keyPair := ldproofs.JWKKeyPair{
-		Id:         signingKey.KeyID(),
-		Type:       signingKey.KeyType().String(),
-		Controller: did,
-		PrivateKey: jsonKey,
-	}
-	jsonKeyPair, _ := json.Marshal(keyPair)
-	suite := ldproofs.NewJSONWebSignature2020Suite()
-	if err := suite.ParseSignatureKey(jsonKeyPair); err != nil {
-		return nil, err
-	}
-	err = doc.AddLinkedDataProof(ldproofs.WithSignatureSuite(suite), ldproofs.WithPurpose(ldproofs.AssertionMethod))
-	if err != nil {
-		return nil, err
-	}
-	//jsonSignedPresentation, _ := json.Marshal(doc.GetDocument())
-
+func generateIdToken(did string, signingKey, encryptionKey jwk.Key) ([]byte, error) {
 	publicEncKey, _ := encryptionKey.PublicKey()
 	claims := map[string]interface{}{
-		//"verified_claims": base64.StdEncoding.EncodeToString(jsonSignedPresentation),
-		"encryption_key":  publicEncKey,
+		"encryption_key": publicEncKey,
 	}
 	publicSigKey, _ := signingKey.PublicKey()
 	thumbprint, _ := signingKey.Thumbprint(crypto.SHA256)
 	nonce, _ := generateNonce()
 	idToken, err := jwt.NewBuilder().
 		Issuer("https://self-issued.me/v2").
-		Audience([]string{"https://api-pilot.ebsi.eu/authorisation/v2/siop-sessions"}).
+		Audience([]string{"/siop-sessions"}).
 		Subject(base64.URLEncoding.EncodeToString(thumbprint)).
 		IssuedAt(time.Now()).
 		Expiration(time.Now().Add(time.Minute*5)).
@@ -133,6 +99,32 @@ func generateIdToken(did string, verifiableCredential string, signingKey, encryp
 		return nil, err
 	}
 	serialized, err := jwt.Sign(idToken, jwt.WithKey(jwa.ES256K, signingKey))
+	if err != nil {
+		return nil, err
+	}
+	return serialized, nil
+}
+
+func generateVpToken(did string, verifiableCredential string, signingKey jwk.Key) ([]byte, error) {
+	presentation := map[string]interface{}{
+		"@context":             []string{"https://www.w3.org/2018/credentials/v1"},
+		"type":                 []string{"VerifiablePresentation"},
+		"holder":               did,
+		"verifiableCredential": []string{verifiableCredential},
+	}
+	vpToken, err := jwt.NewBuilder().
+		Issuer(did).
+		JwtID(fmt.Sprintf("urn:uuid:%s", uuid.NewString())).
+		Audience([]string{"/siop-sessions"}).
+		IssuedAt(time.Now()).
+		Expiration(time.Now().Add(time.Minute*5)).
+		Claim("vp", presentation).
+		Build()
+
+	if err != nil {
+		return nil, err
+	}
+	serialized, err := jwt.Sign(vpToken, jwt.WithKey(jwa.ES256K, signingKey))
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +166,5 @@ func ake1Decrypt(encryptionKey jwk.Key, encryptedPayload string) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(string(plaintext))
 	return plaintext, nil
 }

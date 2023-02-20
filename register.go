@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"math/big"
 	"strconv"
 	"strings"
@@ -56,7 +57,7 @@ type registration struct {
 	Identifier                                string
 	Document                                  map[string]interface{}
 	DocumentMetadata                          map[string]interface{}
-	Credential                                map[string]interface{}
+	Token                                     string
 	SigningKey, EncryptionKey, TransactionKey jwk.Key
 }
 
@@ -80,9 +81,9 @@ func WithDocumentMetadata(docMetadata map[string]interface{}) registrationOption
 	}
 }
 
-func WithCredential(credential map[string]interface{}) registrationOption {
+func WithToken(token string) registrationOption {
 	return func(r *registration) {
-		r.Credential = credential
+		r.Token = token
 	}
 }
 
@@ -113,11 +114,19 @@ func (e *ebsiTrustList) RegisterDid(options ...registrationOption) (interface{},
 	for _, opt := range options {
 		opt(&ro)
 	}
-	credential, err := json.Marshal(ro.Credential)
-	if err != nil {
-		return nil, err
+	if strings.TrimSpace(ro.Identifier) == "" {
+		return nil, errors.New("missing_did")
 	}
-	if ake1, err = e.getAccessToken(ro.Identifier, string(credential), ro.SigningKey, ro.EncryptionKey); err != nil {
+	if strings.TrimSpace(ro.Token) == "" {
+		return nil, errors.New("missing_token:verifiableAuthorization")
+	}
+	if ro.SigningKey == nil {
+		return nil, errors.New("missing_signing_key")
+	}
+	if ro.EncryptionKey == nil {
+		return nil, errors.New("missing_encryption_key")
+	}
+	if ake1, err = e.getAccessToken(ro); err != nil {
 		return nil, err
 	}
 	insertDocumentParams, err := ro.encodeDocumentParams()
@@ -140,11 +149,11 @@ func (e *ebsiTrustList) RegisterDid(options ...registrationOption) (interface{},
 	return unsignedTxn.postSignedTxn(ctx, rpcClient, ro.TransactionKey)
 }
 
-func (b *registration) encodeDocumentParams() (*insertDocumentParams, error) {
-	canonicalizedDocument, _ := jcs.Marshal(b.Document)
+func (r *registration) encodeDocumentParams() (*insertDocumentParams, error) {
+	canonicalizedDocument, _ := jcs.Marshal(r.Document)
 	hashValueDocument := sha256.Sum256(canonicalizedDocument)
 
-	privKey, err := secp256k1.NewPrivateKeyFromJwk(b.SigningKey)
+	privKey, err := secp256k1.NewPrivateKeyFromJwk(r.TransactionKey)
 	if err != nil {
 		return nil, err
 	}
@@ -161,12 +170,12 @@ func (b *registration) encodeDocumentParams() (*insertDocumentParams, error) {
 		// saying that it needs to be a valid did and encoded in hexadecimal.
 		// This error is misleading. Preprod doesn't give the error.
 		// Might have to do with the conformance identifier, but we didn't analyzed it.
-		Identifier:         hexutil.Encode([]byte(b.Identifier)),
+		Identifier:         hexutil.Encode([]byte(r.Identifier)),
 		HashAlgorithmId:    0,
 		HashValue:          hexutil.Encode(hashValueDocument[:]),
-		DidVersionInfo:     jsonStringify2Hex(b.Document),
+		DidVersionInfo:     jsonStringify2Hex(r.Document),
 		TimestampData:      jsonStringify2Hex(map[string]string{"created": time.Now().UTC().Format(time.RFC3339)}),
-		DidVersionMetadata: jsonStringify2Hex(b.DocumentMetadata),
+		DidVersionMetadata: jsonStringify2Hex(r.DocumentMetadata),
 	}
 	return &insertDocumentParams, nil
 }
